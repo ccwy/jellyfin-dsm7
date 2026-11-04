@@ -5,12 +5,8 @@
 # Usage:
 #   ./build_spk.sh <version> [arch]
 #
-#   version  - Jellyfin version (e.g. 12.4.0)
+#   version  - Jellyfin version (e.g. 12.4)
 #   arch     - Target architecture: amd64 (default) or arm64
-#
-# Environment variables:
-#   REFERENCE_SPK_URL - URL to a reference SPK for auxiliary files (ffmpeg, libs, etc.)
-#                       If not set, defaults to the known working v10.10.7 SPK
 #
 
 set -euo pipefail
@@ -21,11 +17,9 @@ ARCH="${2:-amd64}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 TEMPLATE_DIR="${PROJECT_DIR}/templates"
+AUX_DIR="${PROJECT_DIR}/aux"
 WORK_DIR="${PROJECT_DIR}/build"
 OUTPUT_DIR="${PROJECT_DIR}/output"
-
-# Reference SPK for auxiliary files (ffmpeg, shared libs, fonts, etc.)
-REFERENCE_SPK_URL="${REFERENCE_SPK_URL:-https://spk.bobohome.store:8880/download/Jellyfin_v10.10.7-x64_DSM7.2+.spk}"
 
 # Jellyfin binary download URLs
 JELLYFIN_REPO="https://repo.jellyfin.org/files/server/linux/stable/v${JELLYFIN_VERSION}"
@@ -79,25 +73,20 @@ if [ -z "$JELLYFIN_BIN_DIR" ]; then
 fi
 echo "  Binary dir: ${JELLYFIN_BIN_DIR}"
 
-# ── Step 2: Download and extract reference SPK for auxiliary files ─────────────
+# ── Step 2: Extract auxiliary files from local repo ────────────────────────────
 echo ""
-echo "[2/6] Downloading reference SPK for auxiliary files..."
+echo "[2/6] Extracting auxiliary files from local repo (aux/)..."
 
-REF_SPK="${WORK_DIR}/reference.spk"
-echo "  URL: ${REFERENCE_SPK_URL}"
-curl -fSL -o "$REF_SPK" "$REFERENCE_SPK_URL"
-echo "  Downloaded: $(du -h "$REF_SPK" | cut -f1)"
-
-# Extract SPK (it's a tar archive)
-REF_SPK_EXTRACT="${WORK_DIR}/ref_spk"
-mkdir -p "$REF_SPK_EXTRACT"
-tar -xf "$REF_SPK" -C "$REF_SPK_EXTRACT"
-
-# Extract package.tgz from reference
 REF_PKG_EXTRACT="${WORK_DIR}/ref_pkg"
 mkdir -p "$REF_PKG_EXTRACT"
-tar -xzf "${REF_SPK_EXTRACT}/package.tgz" -C "$REF_PKG_EXTRACT"
-echo "  Reference package extracted"
+
+# Reassemble split xz archive and extract
+cat "${AUX_DIR}/jellyfin-aux-files.tar.xz.partaa" \
+    "${AUX_DIR}/jellyfin-aux-files.tar.xz.partab" \
+    "${AUX_DIR}/jellyfin-aux-files.tar.xz.partac" \
+    | xz -d | tar -xf - -C "$REF_PKG_EXTRACT"
+
+echo "  Auxiliary files extracted: $(du -sh "$REF_PKG_EXTRACT" | cut -f1)"
 
 # ── Step 3: Assemble package.tgz contents ──────────────────────────────────────
 echo ""
@@ -106,7 +95,7 @@ echo "[3/6] Assembling package contents..."
 PKG_DIR="${WORK_DIR}/package"
 mkdir -p "$PKG_DIR"
 
-# Copy all non-service directories from reference (bin, cache, config, data, etc, include, lib, logs, share, ui)
+# Copy all non-service directories from auxiliary files (bin, cache, config, data, etc, include, lib, logs, share, ui)
 for dir in bin cache config data etc include lib logs share ui; do
     if [ -d "${REF_PKG_EXTRACT}/${dir}" ]; then
         cp -a "${REF_PKG_EXTRACT}/${dir}" "${PKG_DIR}/"
