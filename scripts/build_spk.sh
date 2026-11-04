@@ -108,8 +108,14 @@ mkdir -p "${PKG_DIR}/service"
 # Copy new Jellyfin binary and web UI
 cp -a "$JELLYFIN_BIN_DIR" "${PKG_DIR}/service/bin"
 
-# Find and copy web UI
-WEB_DIR=$(find "$JELLYFIN_EXTRACT" -type d -name "web" -path "*/jellyfin-web/*" 2>/dev/null | head -1)
+# Find and copy web UI (Jellyfin 12.x uses jellyfin-web directory)
+WEB_DIR="${JELLYFIN_BIN_DIR}/jellyfin-web"
+if [ -d "$WEB_DIR" ]; then
+    cp -a "$WEB_DIR" "${PKG_DIR}/service/web"
+    echo "  Web UI copied from: ${WEB_DIR}"
+else
+    echo "  WARNING: Web UI directory not found, Jellyfin will use embedded web files"
+fi
 if [ -z "$WEB_DIR" ]; then
     # Try alternative location
     WEB_DIR=$(find "$JELLYFIN_EXTRACT" -type d -name "web" ! -path "*/service/*" 2>/dev/null | head -1)
@@ -139,8 +145,8 @@ cd - > /dev/null
 PKG_SIZE=$(stat -c %s "${WORK_DIR}/package.tgz")
 echo "  package.tgz: $(du -h "${WORK_DIR}/package.tgz" | cut -f1) (${PKG_SIZE} bytes)"
 
-# Calculate MD5 checksum (Synology uses MD5 of the uncompressed tar)
-CHECKSUM=$(gzip -dc "${WORK_DIR}/package.tgz" | md5sum | awk '{print $1}')
+# Calculate MD5 checksum (Synology uses MD5 of the compressed package.tgz)
+CHECKSUM=$(md5sum "${WORK_DIR}/package.tgz" | awk '{print $1}')
 echo "  Checksum: ${CHECKSUM}"
 
 # ── Step 5: Generate INFO file ─────────────────────────────────────────────────
