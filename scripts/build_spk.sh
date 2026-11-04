@@ -105,24 +105,14 @@ done
 # Create service directory with new Jellyfin binary
 mkdir -p "${PKG_DIR}/service"
 
-# Copy new Jellyfin binary and web UI
+# Copy new Jellyfin binary (includes DLLs, .so, jellyfin-web, etc.)
 cp -a "$JELLYFIN_BIN_DIR" "${PKG_DIR}/service/bin"
 
-# Find and copy web UI (Jellyfin 12.x uses jellyfin-web directory)
-WEB_DIR="${JELLYFIN_BIN_DIR}/jellyfin-web"
+# Move web UI from service/bin/jellyfin-web to service/web
+WEB_DIR="${PKG_DIR}/service/bin/jellyfin-web"
 if [ -d "$WEB_DIR" ]; then
-    cp -a "$WEB_DIR" "${PKG_DIR}/service/web"
-    echo "  Web UI copied from: ${WEB_DIR}"
-else
-    echo "  WARNING: Web UI directory not found, Jellyfin will use embedded web files"
-fi
-if [ -z "$WEB_DIR" ]; then
-    # Try alternative location
-    WEB_DIR=$(find "$JELLYFIN_EXTRACT" -type d -name "web" ! -path "*/service/*" 2>/dev/null | head -1)
-fi
-if [ -n "$WEB_DIR" ]; then
-    cp -a "$WEB_DIR" "${PKG_DIR}/service/web"
-    echo "  Web UI copied from: ${WEB_DIR}"
+    mv "$WEB_DIR" "${PKG_DIR}/service/web"
+    echo "  Web UI moved to service/web ($(find ${PKG_DIR}/service/web -type f | wc -l) files)"
 else
     echo "  WARNING: Web UI directory not found, Jellyfin will use embedded web files"
 fi
