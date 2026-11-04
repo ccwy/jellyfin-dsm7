@@ -1,0 +1,47 @@
+### Generic variables and functions
+### -------------------------------
+
+if [ -z "${SYNOPKG_PKGNAME}" ] || [ -z "${SYNOPKG_DSM_VERSION_MAJOR}" ]; then
+  echo "Error: Environment variables are not set." 1>&2;
+  echo "Please run me using synopkg instead. Example: \"synopkg start [packagename]\"" 1>&2;
+  exit 1
+fi
+
+GETKEYVALUE="/usr/syno/bin/synogetkeyvalue"
+PACKAGE_BASE="/var/packages/${SYNOPKG_PKGNAME}/target"
+SVC_CWD="${PACKAGE_BASE}"
+JELLYFIN_BIN="${PACKAGE_BASE}/service/bin/jellyfin"
+JELLYFIN_DATA_DIR_OPT="--datadir=${PACKAGE_BASE}/data"
+JELLYFIN_CONFIG_DIR_OPT="--configdir=${PACKAGE_BASE}/config"
+JELLYFIN_LOG_DIR_OPT="--logdir=${PACKAGE_BASE}/logs"
+JELLYFIN_CACHE_DIR_OPT="--cachedir=${PACKAGE_BASE}/cache"
+JELLYFIN_WEB_OPT="--webdir=${PACKAGE_BASE}/service/web"
+JELLYFIN_PACKAGE_OPT="--package-name=synology"
+JELLYFIN_FFMPEG_OPT="--ffmpeg=${PACKAGE_BASE}/bin/ffmpeg"
+
+if [[ -f "${PACKAGE_BASE}/config/network.xml" ]]; then
+    JELLYFIN_CONPORT=`cat "${PACKAGE_BASE}/config/network.xml" | grep -E "<InternalHttpPort>.*</InternalHttpPort>" | awk '{t=$0;gsub(/.*<InternalHttpPort>|<\/InternalHttpPort>.*/,"",t);print t}'`
+    JELLYFIN_UIPORT=`cat "${PACKAGE_BASE}/ui/config" | jq -r '.".url"."SYNO.SDS.'${DNAME}'.Application"."port"'`
+fi
+
+export AMDGPU_IDS="${PACKAGE_BASE}/share/libdrm/amdgpu.ids"
+export FONTCONFIG_PATH="${PACKAGE_BASE}/etc/fonts"
+export PATH="${PACKAGE_BASE}/bin:${PACKAGE_BASE}/service/bin:${PATH}"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${PACKAGE_BASE}/lib"
+export LIBVA_DRIVERS_PATH="${PACKAGE_BASE}/lib/dri"
+export OCL_ICD_VENDORS="${PACKAGE_BASE}/etc/OpenCL/vendors"
+export PCI_IDS_PATH="${PACKAGE_BASE}/share/hwdata/pci.ids"
+
+# start-stop-status script redirect stdout/stderr to LOG_FILE
+LOG_FILE="${PACKAGE_BASE}/logs/${SYNOPKG_PKGNAME}.log"
+
+# Service command has to deliver its pid into PID_FILE
+PID_FILE="${SYNOPKG_PKGVAR}/${SYNOPKG_PKGNAME}.pid"
+
+### Package specific variables and functions
+### ----------------------------------------
+
+SERVICE_COMMAND[0]=""$JELLYFIN_BIN" "$JELLYFIN_PACKAGE_OPT" "$JELLYFIN_DATA_DIR_OPT" "$JELLYFIN_CONFIG_DIR_OPT" "$JELLYFIN_WEB_OPT" "$JELLYFIN_LOG_DIR_OPT" "$JELLYFIN_CACHE_DIR_OPT" "$JELLYFIN_FFMPEG_OPT""
+
+SVC_BACKGROUND=y
+SVC_WRITE_PID=y

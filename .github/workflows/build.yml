@@ -1,0 +1,154 @@
+name: Build Jellyfin SPK
+
+on:
+  # 每 24 小时自动触发
+  schedule:
+    - cron: '0 2 * * *'  # UTC 02:00 = 北京时间 10:00
+
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Jellyfin 版本号 (留空则自动检测最新)'
+        required: false
+        type: string
+        default: ''
+      arch:
+        description: '目标架构'
+        required: false
+        type: choice
+        options:
+          - amd64
+          - arm64
+          - both
+        default: amd64
+
+permissions:
+  contents: write
+
+jobs:
+  # ── 检测最新版本 ──────────────────────────────────────────────────────────
+  detect-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+    steps:
+      - name: Detect latest Jellyfin version
+        id: detect
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            echo "Using manually specified version: ${VERSION}"
+          else
+            # Query Jellyfin release API for latest version
+            LATEST=$(curl -fsSL https://api.github.com/repos/jellyfin/jellyfin/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+            if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+              # Fallback: scrape repo.jellyfin.org
+              LATEST=$(curl -fsSL https://repo.jellyfin.org/files/server/linux/stable/ | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)
+            fi
+            VERSION="$LATEST"
+            echo "Detected latest version: ${VERSION}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+  # ── 打包 ──────────────────────────────────────────────────────────────────
+  build:
+    needs: detect-version
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ${{ inputs.arch == 'both' && fromJSON('["amd64","arm64"]') || fromJSON(format('["{0}"]', inputs.arch || 'amd64')) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: |
+          echo "JELLYFIN_VERSION=${{ needs.detect-version.outputs.version }}" >> $GITHUB_ENV
+          echo "ARCH=${{ matrix.arch }}" >> $GITHUB_ENV
+          echo "Build date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Build SPK
+        run: |
+          chmod +x scripts/build_spk.sh
+          ./scripts/build_spk.sh "${JELLYFIN_VERSION}" "${ARCH}"
+
+      - name: Verify SPK
+        run: |
+          SPK_FILE=$(ls output/*.spk)
+          echo "SPK file: ${SPK_FILE}"
+          echo "Size: $(du -h "${SPK_FILE}" | cut -f1)"
+          echo ""
+          echo "SPK contents:"
+          tar -tf "${SPK_FILE}"
+          echo ""
+          echo "INFO file:"
+          tar -xf "${SPK_FILE}" -O INFO
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyfin-${{ matrix.arch }}-${{ needs.detect-version.outputs.version }}
+          path: output/*.spk
+          retention-days: 30
+
+  # ── 发布 Release ──────────────────────────────────────────────────────────
+  release:
+    needs: [detect-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.detect-version.outputs.version }}"
+          DATE=$(date -u '+%Y-%m-%d')
+          
+          # Collect all SPK files
+          SPK_FILES=$(find artifacts -name "*.spk" | sort)
+          
+          if [ -z "$SPK_FILES" ]; then
+            echo "ERROR: No SPK files found"
+            exit 1
+          fi
+          
+          echo "Releasing version ${VERSION} with files:"
+          echo "$SPK_FILES"
+          
+          # Check if release already exists
+          if gh release view "v${VERSION}" > /dev/null 2>&1; then
+            echo "Release v${VERSION} already exists, updating..."
+            gh release upload "v${VERSION}" $SPK_FILES --clobber
+          else
+            gh release create "v${VERSION}" \
+              --title "Jellyfin ${VERSION}" \
+              --notes "## Jellyfin ${VERSION} for Synology DSM 7.2+
+
+          自动构建于 ${DATE}
+
+          ### 下载
+          选择对应你 NAS 架构的 .spk 文件：
+          - **x64 (Intel/AMD)**: \`jellyfin_v${VERSION}-x64_DSM7.2+.spk\`
+          - **arm64v8 (ARM)**: \`jellyfin_v${VERSION}-arm64v8_DSM7.2+.spk\`
+
+          ### 安装
+          1. 在 DSM 套件中心 → 手动安装 → 浏览选择 .spk 文件
+          2. 按提示完成安装
+          3. 安装完成后访问 \`http://NAS_IP:8096\` 进行初始设置
+
+          ### 关于
+          - Jellyfin 官方: https://jellyfin.org
+          - 源码: https://github.com/jellyfin/jellyfin
+          " \
+              $SPK_FILES
+          fi
+          
+          echo "Release created/updated successfully"

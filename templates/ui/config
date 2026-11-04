@@ -1,0 +1,13 @@
+{
+    ".url": {
+        "SYNO.SDS.jellyfin.Application": {
+            "title": "Jellyfin媒体服务器",
+            "desc": "Jellyfin Web UI",
+            "icon": "images/jellyfin-{0}.png",
+            "type": "url",
+            "protocol": "http",
+            "port": "8096",
+            "allUsers": false
+        }
+    }
+}
